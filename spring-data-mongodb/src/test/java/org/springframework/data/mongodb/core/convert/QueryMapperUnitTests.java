@@ -1509,6 +1509,24 @@ public class QueryMapperUnitTests {
 		assertThat(mappedObject).isEqualTo("{ 'text' : { $in : ['gnirps', 'atad'] } }");
 	}
 
+	@Test // GH-4510
+	void convertsNestedOperatorValueForPropertyThatHasValueConverter() {
+
+		org.bson.Document mappedObject = mapper.getMappedObject(query(where("text").gt("spring").lt( "data")).getQueryObject(),
+				context.getPersistentEntity(WithPropertyValueConverter.class));
+
+		assertThat(mappedObject).isEqualTo("{ 'text' : {  $gt : 'gnirps', $lt : 'atad' } }");
+	}
+
+	@Test // GH-4510
+	void convertsNestedOperatorValueForPropertyContainingListThatHasValueConverter() {
+
+		org.bson.Document mappedObject = mapper.getMappedObject(query(where("text").gt("spring").in( "data")).getQueryObject(),
+				context.getPersistentEntity(WithPropertyValueConverter.class));
+
+		assertThat(mappedObject).isEqualTo("{ 'text' : {  $gt : 'gnirps', $in : [ 'atad' ] } }");
+	}
+
 	class WithDeepArrayNesting {
 
 		List<WithNestedArray> level0;

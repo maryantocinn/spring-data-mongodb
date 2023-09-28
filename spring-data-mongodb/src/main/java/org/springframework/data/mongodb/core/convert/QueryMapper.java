@@ -455,6 +455,15 @@ public class QueryMapper {
 				return collection.stream().map(it -> valueConverter.write(it, conversionContext)).collect(Collectors.toList());
 			}
 
+			if(!documentField.getProperty().isMap() && sourceValue instanceof Document document) {
+				return new Document(document.entrySet().stream().collect(Collectors.toMap(entry -> entry.getKey(), entry -> {
+					if(isKeyword(entry.getKey())) {
+						return getMappedValue(documentField, entry.getValue());
+					}
+					return entry.getValue();
+				})));
+			}
+
 			return valueConverter.write(value, conversionContext);
 		}
 
