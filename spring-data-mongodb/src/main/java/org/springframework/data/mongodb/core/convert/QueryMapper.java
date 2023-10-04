@@ -378,8 +378,7 @@ public class QueryMapper {
 		if (keyword.isOrOrNor() || (keyword.hasIterableValue() && !keyword.isGeometry())) {
 
 			Iterable<?> conditions = keyword.getValue();
-			List<Object> newConditions = conditions instanceof Collection<?> collection
-					? new ArrayList<>(collection.size())
+			List<Object> newConditions = conditions instanceof Collection<?> collection ? new ArrayList<>(collection.size())
 					: new ArrayList<>();
 
 			for (Object condition : conditions) {
@@ -441,74 +440,14 @@ public class QueryMapper {
 		if (documentField.getProperty() != null
 				&& converter.getCustomConversions().hasValueConverter(documentField.getProperty())) {
 
-			MongoConversionContext conversionContext = new MongoConversionContext(new PropertyValueProvider<>() {
-				@Override
-				public <T> T getPropertyValue(MongoPersistentProperty property) {
-					throw new IllegalStateException("No enclosing property available");
-				}
-			}, documentField.getProperty(), converter);
 			PropertyValueConverter<Object, Object, ValueConversionContext<MongoPersistentProperty>> valueConverter = converter
 					.getCustomConversions().getPropertyValueConversions().getValueConverter(documentField.getProperty());
 
-			/* might be an $in clause with multiple entries */
-			if (!documentField.getProperty().isCollectionLike() && sourceValue instanceof Collection<?> collection) {
-				return collection.stream().map(it -> valueConverter.write(it, conversionContext)).collect(Collectors.toList());
-			}
-
-			if(!documentField.getProperty().isMap() && sourceValue instanceof Document document) {
-				return new Document(document.entrySet().stream().collect(Collectors.toMap(entry -> entry.getKey(), entry -> {
-					if(isKeyword(entry.getKey())) {
-						return getMappedValue(documentField, entry.getValue());
-					}
-					return entry.getValue();
-				})));
-			}
-
-			return valueConverter.write(value, conversionContext);
+			return convertValue(documentField, sourceValue, value, valueConverter);
 		}
 
 		if (documentField.isIdField() && !documentField.isAssociation()) {
-
-			if (isDBObject(value)) {
-				DBObject valueDbo = (DBObject) value;
-				Document resultDbo = new Document(valueDbo.toMap());
-
-				if (valueDbo.containsField("$in") || valueDbo.containsField("$nin")) {
-					String inKey = valueDbo.containsField("$in") ? "$in" : "$nin";
-					List<Object> ids = new ArrayList<>();
-					for (Object id : (Iterable<?>) valueDbo.get(inKey)) {
-						ids.add(convertId(id, getIdTypeForField(documentField)));
-					}
-					resultDbo.put(inKey, ids);
-				} else if (valueDbo.containsField("$ne")) {
-					resultDbo.put("$ne", convertId(valueDbo.get("$ne"), getIdTypeForField(documentField)));
-				} else {
-					return getMappedObject(resultDbo, Optional.empty());
-				}
-				return resultDbo;
-			}
-
-			else if (isDocument(value)) {
-				Document valueDbo = (Document) value;
-				Document resultDbo = new Document(valueDbo);
-
-				if (valueDbo.containsKey("$in") || valueDbo.containsKey("$nin")) {
-					String inKey = valueDbo.containsKey("$in") ? "$in" : "$nin";
-					List<Object> ids = new ArrayList<>();
-					for (Object id : (Iterable<?>) valueDbo.get(inKey)) {
-						ids.add(convertId(id, getIdTypeForField(documentField)));
-					}
-					resultDbo.put(inKey, ids);
-				} else if (valueDbo.containsKey("$ne")) {
-					resultDbo.put("$ne", convertId(valueDbo.get("$ne"), getIdTypeForField(documentField)));
-				} else {
-					return getMappedObject(resultDbo, Optional.empty());
-				}
-				return resultDbo;
-
-			} else {
-				return convertId(value, getIdTypeForField(documentField));
-			}
+			return convertIdField(documentField, value);
 		}
 
 		if (value == null) {
@@ -707,6 +646,66 @@ public class QueryMapper {
 		}
 
 		return createReferenceFor(source, property);
+	}
+
+	@Nullable
+	private Object convertValue(Field documentField, Object sourceValue, Object value,
+			PropertyValueConverter<Object, Object, ValueConversionContext<MongoPersistentProperty>> valueConverter) {
+
+		MongoConversionContext conversionContext = new MongoConversionContext(new PropertyValueProvider<>() {
+			@Override
+			public <T> T getPropertyValue(MongoPersistentProperty property) {
+				throw new IllegalStateException("No enclosing property available");
+			}
+		}, documentField.getProperty(), converter);
+
+		/* might be an $in clause with multiple entries */
+		if (!documentField.getProperty().isCollectionLike() && sourceValue instanceof Collection<?> collection) {
+			return collection.stream().map(it -> valueConverter.write(it, conversionContext)).collect(Collectors.toList());
+		}
+
+		if (!documentField.getProperty().isMap() && sourceValue instanceof Document document) {
+			return new Document(document.entrySet().stream().collect(Collectors.toMap(Entry::getKey, entry -> {
+				if (isKeyword(entry.getKey())) {
+					return getMappedValue(documentField, entry.getValue());
+				}
+				return entry.getValue();
+			})));
+		}
+
+		return valueConverter.write(value, conversionContext);
+	}
+
+	@Nullable
+	private Object convertIdField(Field documentField, Object source) {
+
+		Object value = source;
+		if (isDBObject(source)) {
+			DBObject valueDbo = (DBObject) source;
+			value = new Document(valueDbo.toMap());
+		}
+
+		if (!isDocument(value)) {
+			return convertId(value, getIdTypeForField(documentField));
+		}
+
+		Document valueDbo = (Document) value;
+		Document resultDbo = new Document(valueDbo);
+
+		if (valueDbo.containsKey("$in") || valueDbo.containsKey("$nin")) {
+			String inKey = valueDbo.containsKey("$in") ? "$in" : "$nin";
+			List<Object> ids = new ArrayList<>();
+			for (Object id : (Iterable<?>) valueDbo.get(inKey)) {
+				ids.add(convertId(id, getIdTypeForField(documentField)));
+			}
+			resultDbo.put(inKey, ids);
+		} else if (valueDbo.containsKey("$ne")) {
+			resultDbo.put("$ne", convertId(valueDbo.get("$ne"), getIdTypeForField(documentField)));
+		} else {
+			return getMappedObject(resultDbo, Optional.empty());
+		}
+		return resultDbo;
+
 	}
 
 	/**
